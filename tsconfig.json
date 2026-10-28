@@ -1,0 +1,10 @@
+{
+  "extends": "./sms-gateway/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "./sms-gateway",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["sms-gateway/**/*.ts", "sms-gateway/**/*.tsx"]
+}
