@@ -1,6 +1,7 @@
 import { ZodError } from "zod";
 import { AppError, UnauthorizedError, ValidationError } from "./errors";
 import { verifyToken } from "./auth/jwt";
+import { config } from "./config";
 
 // Framework-agnostic HTTP helpers (standard Web Request/Response only, no next/* imports).
 
@@ -18,7 +19,8 @@ export function errorResponse(err: unknown): Response {
     return json({ error: { code: err.code, message: err.message, ...(err.details !== undefined ? { details: err.details } : {}) } }, err.status, err.headers);
   }
   console.error("Unexpected error:", err); // log server-side only, never leak internals
-  return json({ error: { code: "INTERNAL_ERROR", message: "Something went wrong" } }, 500);
+  const message = config.DEMO_CONTROLS && err instanceof Error ? `${err.name}: ${err.message}` : "Something went wrong";
+  return json({ error: { code: "INTERNAL_ERROR", message } }, 500);
 }
 
 export function withErrorHandling(handler: (req: Request) => Promise<Response>) {
