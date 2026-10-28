@@ -1,0 +1,127 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum Encoding {
+  GSM7
+  UNICODE
+}
+
+// CREDIT = signup bonus / top-up / test adjustment up; DEBIT = send charge (or adjustment down)
+enum TxType {
+  DEBIT
+  REFUND
+  CREDIT
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  wallet       Wallet?
+  messages     Message[]
+
+  @@map("users")
+}
+
+model Wallet {
+  userId    String   @id @map("user_id")
+  balance   Int
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("wallets")
+}
+
+model Provider {
+  id          String        @id @default(uuid())
+  name        String        @unique
+  priority    Int
+  balance     Int
+  failureRate Float         @map("failure_rate")
+  isActive    Boolean       @default(true) @map("is_active")
+  attempts    SendAttempt[]
+  messages    Message[]
+
+  @@map("providers")
+}
+
+model Message {
+  id            String        @id
+  userId        String        @map("user_id")
+  requestId     String        @map("request_id")
+  to            String
+  body          String
+  encoding      Encoding
+  parts         Int
+  cost          Int
+  status        MessageStatus @default(PENDING)
+  providerId    String?       @map("provider_id")
+  refunded      Boolean       @default(false)
+  failureReason String?       @map("failure_reason")
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime      @default(now()) @map("updated_at") @db.Timestamptz(3)
+  sentAt        DateTime?     @map("sent_at") @db.Timestamptz(3)
+  user          User          @relation(fields: [userId], references: [id])
+  provider      Provider?     @relation(fields: [providerId], references: [id])
+  attempts      SendAttempt[]
+
+  @@index([userId, createdAt])
+  @@index([userId, status])
+  @@index([userId, to])
+  @@index([status, updatedAt])
+  @@index([requestId])
+  @@map("messages")
+}
+
+model CreditTransaction {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  messageId    String?  @map("message_id")
+  type         TxType
+  amount       Int
+  balanceAfter Int      @map("balance_after")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  // DB-level guarantee: at most one DEBIT and one REFUND per message
+  @@unique([messageId, type])
+  @@index([userId, createdAt])
+  @@map("credit_transactions")
+}
+
+model SendAttempt {
+  id         String   @id @default(uuid())
+  messageId  String   @map("message_id")
+  providerId String   @map("provider_id")
+  success    Boolean
+  error      String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  message    Message  @relation(fields: [messageId], references: [id])
+  provider   Provider @relation(fields: [providerId], references: [id])
+
+  @@index([providerId, createdAt])
+  @@map("send_attempts")
+}
+
+// Fixed-window rate limiter state (bonus B2). One row per user per minute window.
+model RateLimit {
+  userId      String   @map("user_id")
+  windowStart DateTime @map("window_start") @db.Timestamptz(3)
+  count       Int
+
+  @@id([userId, windowStart])
+  @@map("rate_limits")
+}

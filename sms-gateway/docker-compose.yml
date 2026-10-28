@@ -1,0 +1,55 @@
+# One command: docker compose up --build
+# Starts Postgres, applies migrations + seeds providers, then runs the API and the reconciler.
+x-app-env: &app-env
+  DATABASE_URL: postgresql://sms:sms@db:5432/sms
+  JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-0123456789abcdef}
+  STARTING_CREDITS: ${STARTING_CREDITS:-100}
+  ALLOW_DEV_TOPUP: ${ALLOW_DEV_TOPUP:-true}
+  RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-60}
+  DEMO_CONTROLS: ${DEMO_CONTROLS:-false}
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: sms
+      POSTGRES_PASSWORD: sms
+      POSTGRES_DB: sms
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sms -d sms"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build: .
+    command: sh -c "npx prisma migrate deploy && npm run db:seed"
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  reconciler:
+    build: .
+    command: npm run reconcile
+    environment: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
